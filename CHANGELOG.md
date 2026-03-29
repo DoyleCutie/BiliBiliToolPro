@@ -1,3 +1,64 @@
+## 3.8.2
+- Fix[#1026]: 更新文档
+## 3.8.1
+- Fix[#1005]: 更新文档
+## 3.8.0
+- Feature: 使推送的更版本号信息更简洁
+- Fix[#998]: 修复企业微信 App 推送缺少 access_token 问题
+- Fix[#996]: 修复 Server 酱推送标题不能为空的问题
+- Fix[#669]: 企业微信默认消息类型从 markdown 改为 text
+## 3.7.0
+- Fix[#989]: 修复钉钉推送标题不能为空的问题
+## 3.6.0
+- Feature[#961]: Web 项目新增推送功能
+- Feature[#961]: 升级 Serilog Pkg
+- Feature: 使用中心化包管理
+## 3.5.0
+- Feature[#924]: 新增 Sqlite 配置源
+- Feature[#924]: 新增在线配置页
+- Feature[#924]: 根据任务拆分配置
+- Feature[#924]: 实现开启、关闭任务功能
+- Feature[#924]: 实现修改 Cron 定时时间功能
+- Feature: 定时任务页改为默认50条
+- Feature: 更新配置文档
+## 3.4.0
+- Feature: 优化登录失败时的提示信息
+- Feature: 更新推送的文档说明
+## 3.3.0
+- Feature[#935]: Web 新增登录功能
+- Feature[#935]: Web 新增修改密码功能
+- Feature[#935]: 更新文档
+- Feature: 更新开源协议为 GNU GPLv3
+- Feature: 拆分原本的 Daily 任务
+- Doc: 更新文档
+- Feature: 升级 csharpier
+- Feature: 变更默认数据库文件位置到 /app/config 下
+## 3.2.0
+- Fix: 修复大会员大积分签到任务
+- Fix: 修复大会员大积分的签到和浏览追番频道任务
+- Feature[#901]: 实现大会员大积分的浏览影视频道页任务
+- Feature[#921]: 新增大会员大积分的观看剧集 bruno 信息
+- Feature: 鉴权不再兼容老版本青龙（老版本需要手动添加 bili cookie）
+- Feature: 修复 warnings
+- Feature: 移除无用的using
+- Fix: 修复 VerifyPR CI/CD 流水线
+- Feature: README 添加 Trending 信息
+## 3.1.0
+- Feature[#842]: 对接青龙新的 OpenAPI，实现青龙版 Bili 登录后自动存储 Cookie
+- Feature[#842]: 兼容老版本青龙的文件鉴权方式
+- Feature[#842]: 新增新版青龙添加鉴权的说明文档
+- Feature[#820]: 更新文档解决配置文件边缘场景下的刷新问题
+- Fix[#863]: 修复青龙尝试修复异常任务
+- Fix[#879]: 移除文档内过期的加速器地址
+- Feature: 开启 Nullable 特性，在编译阶段检查潜在的 NullReferenceException 问题
+- Feature: 临时取消 Null warning
+- Fix: Bruno 脚本错误
+- Fix: 尝试修复发布包时 CI/CD 丢失 change log 问题
+## 3.0.0
+- Feature[#884]: 上线 bili_tool_web
+- Fix[#875]: 青龙检测 dotnet 版本只需要大于等于 8.0
+- Fix[#876]: 升级 VipBigPoint 接口，解决风控
+- Fix[#881]: 升级 LiveLottery 接口，解决风控
 ## 2.2.2
 - Code refactor
 - Integration Husky.Net and CSharpier

@@ -1,13 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
+﻿using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
+using Ray.BiliBiliTool.Agent.BiliBiliAgent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Services;
 using Ray.BiliBiliTool.Agent.HttpClientDelegatingHandlers;
@@ -30,24 +27,7 @@ public static class ServiceCollectionExtension
     )
     {
         //Cookie
-        services.AddSingleton<CookieStrFactory>(sp =>
-        {
-            var list = new List<string>();
-            var config = sp.GetRequiredService<IConfiguration>();
-
-            //兼容老版
-            var old = config["BiliBiliCookie:CookieStr"];
-            if (!string.IsNullOrWhiteSpace(old))
-                list.Add(old);
-
-            var configList =
-                config.GetSection("BiliBiliCookies").Get<List<string>>()
-                ?? new List<string>().Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
-            list.AddRange(configList);
-
-            return new CookieStrFactory(list);
-        });
-        services.AddTransient<BiliCookie>();
+        services.AddSingleton<CookieStrFactory<BiliCookie>>();
 
         //全局代理
         services.SetGlobalProxy(configuration);
@@ -70,9 +50,6 @@ public static class ServiceCollectionExtension
                 "User-Agent",
                 sp.GetRequiredService<IOptionsMonitor<SecurityOptions>>().CurrentValue.UserAgent
             );
-            var ck = sp.GetRequiredService<BiliCookie>().ToString();
-            if (!string.IsNullOrWhiteSpace(ck))
-                c.DefaultRequestHeaders.Add("Cookie", ck);
         };
         Action<IServiceProvider, HttpClient> configApp = (sp, c) =>
         {
@@ -80,12 +57,11 @@ public static class ServiceCollectionExtension
                 "User-Agent",
                 sp.GetRequiredService<IOptionsMonitor<SecurityOptions>>().CurrentValue.UserAgentApp
             );
-            var ck = sp.GetRequiredService<BiliCookie>().ToString();
-            if (!string.IsNullOrWhiteSpace(ck))
-                c.DefaultRequestHeaders.Add("Cookie", ck);
         };
 
-        services.AddBiliBiliClientApi<IUserInfoApi>(BiliHosts.Api, config);
+        services.AddBiliBiliClientApi<IUserInfoApi>(BiliHosts.Api, config, true);
+
+        services.AddBiliBiliClientApi<IUpInfoApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IDailyTaskApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IRelationApi>(BiliHosts.Api, config);
         services.AddBiliBiliClientApi<IChargeApi>(BiliHosts.Api, config);
@@ -102,6 +78,7 @@ public static class ServiceCollectionExtension
         services.AddBiliBiliClientApi<ILiveApi>(BiliHosts.Live, config);
 
         services.AddBiliBiliClientApi<IVipBigPointApi>(BiliHosts.App, configApp);
+        services.AddBiliBiliClientApi<IMallApi>(BiliHosts.Mall, configApp);
 
         //qinglong
         var qinglongHost = configuration["QL_URL"] ?? "http://localhost:5600";
@@ -137,7 +114,8 @@ public static class ServiceCollectionExtension
     private static IServiceCollection AddBiliBiliClientApi<TInterface>(
         this IServiceCollection services,
         string host,
-        Action<IServiceProvider, HttpClient> config
+        Action<IServiceProvider, HttpClient> config,
+        bool ignorWrid = false
     )
         where TInterface : class
     {
@@ -152,6 +130,11 @@ public static class ServiceCollectionExtension
             .AddHttpMessageHandler<IntervalDelegatingHandler>()
             .AddPolicyHandler(GetRetryPolicy());
 
+        if (!ignorWrid)
+        {
+            httpClientBuilder.AddHttpMessageHandler<WridEncryptionDelegatingHandler>();
+        }
+
         return services;
     }
 
@@ -165,13 +148,13 @@ public static class ServiceCollectionExtension
         IConfiguration configuration
     )
     {
-        string proxyAddress = configuration["Security:WebProxy"];
-        if (proxyAddress.IsNotNullOrEmpty())
+        var proxyAddress = configuration["Security:WebProxy"];
+        if (!string.IsNullOrWhiteSpace(proxyAddress))
         {
             WebProxy webProxy = new WebProxy();
 
             //user:password@host:port http proxy only .Tested with tinyproxy-1.11.0-rc1
-            if (proxyAddress.Contains("@"))
+            if (proxyAddress!.Contains("@"))
             {
                 string userPass = proxyAddress.Split("@")[0];
                 string address = proxyAddress.Split("@")[1];
@@ -180,8 +163,8 @@ public static class ServiceCollectionExtension
                 string proxyPass = "";
                 if (userPass.Contains(":"))
                 {
-                    proxyUser = userPass?.Split(":")[0];
-                    proxyPass = userPass?.Split(":")[1];
+                    proxyUser = userPass.Split(":")[0];
+                    proxyPass = userPass.Split(":")[1];
                 }
 
                 webProxy.Address = new Uri("http://" + address);

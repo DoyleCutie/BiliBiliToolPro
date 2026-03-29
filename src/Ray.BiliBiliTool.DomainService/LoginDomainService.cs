@@ -1,21 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using QRCoder;
 using Ray.BiliBiliTool.Agent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos.Passport;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
 using Ray.BiliBiliTool.Agent.QingLong;
+using Ray.BiliBiliTool.Agent.QingLong.Dtos;
+using Ray.BiliBiliTool.Config.Options;
 using Ray.BiliBiliTool.DomainService.Interfaces;
 using Ray.BiliBiliTool.Infrastructure.Cookie;
 
@@ -30,18 +26,18 @@ public class LoginDomainService(
     IHostEnvironment hostingEnvironment,
     IQingLongApi qingLongApi,
     IHomeApi homeApi,
-    IConfiguration configuration
+    IConfiguration configuration,
+    IOptions<QingLongOptions> qingLongOptions
 ) : ILoginDomainService
 {
     public async Task<BiliCookie> LoginByQrCodeAsync(CancellationToken cancellationToken)
     {
-        BiliCookie cookieInfo = null;
+        BiliCookie? cookieInfo = null;
 
         var re = await passportApi.GenerateQrCode();
         if (re.Code != 0)
         {
-            logger.LogWarning("获取二维码失败：{msg}", re.ToJsonStr());
-            return null;
+            throw new Exception($"获取二维码失败：{re.ToJsonStr()}");
         }
 
         var url = re.Data.Url;
@@ -71,7 +67,7 @@ public class LoginDomainService(
 
             var contentStr = await check.Content.ReadAsStringAsync(cancellationToken);
             var content = JsonConvert.DeserializeObject<BiliApiResponse<TokenDto>>(contentStr);
-            if (content.Code != 0)
+            if (content?.Code != 0)
             {
                 logger.LogWarning("调用检测接口异常：{msg}", check.ToJsonStr());
                 break;
@@ -91,13 +87,19 @@ public class LoginDomainService(
                     .Value;
 
                 var cookieStr = CookieInfo.ConvertSetCkHeadersToCkStr(cookies);
-                cookieInfo = new BiliCookie(cookieStr);
+
+                cookieInfo = CookieStrFactory<BiliCookie>.CreateNew(cookieStr);
                 cookieInfo.Check();
 
                 break;
             }
 
             logger.LogInformation("{msg}", content.Data.Message + Environment.NewLine);
+        }
+
+        if (cookieInfo == null)
+        {
+            throw new Exception("登录超时");
         }
 
         return cookieInfo;
@@ -117,8 +119,16 @@ public class LoginDomainService(
                 IEnumerable<string> setCookieHeaders = homePage
                     .Headers.SingleOrDefault(header => header.Key == "Set-Cookie")
                     .Value;
-                biliCookie.MergeCurrentCookieBySetCookieHeaders(setCookieHeaders);
-                logger.LogInformation("SetCookie成功");
+                if (setCookieHeaders != null)
+                {
+                    biliCookie.MergeCurrentCookieBySetCookieHeaders(setCookieHeaders);
+                    logger.LogInformation("SetCookie成功");
+                }
+                else
+                {
+                    logger.LogInformation("无需set");
+                }
+
                 return biliCookie;
             }
             logger.LogError("访问主站失败：{msg}", homePage.ToJsonStr());
@@ -141,20 +151,26 @@ public class LoginDomainService(
         var path = hostingEnvironment.ContentRootPath;
         var indexOfBin = path.LastIndexOf("bin");
         if (indexOfBin != -1)
+        {
             path = path[..indexOfBin];
+        }
+        if (string.Equals(configuration["PlatformType"], "Web", StringComparison.OrdinalIgnoreCase))
+        {
+            path = Path.Combine(path, "config");
+        }
         var fileProvider = new PhysicalFileProvider(path);
         IFileInfo fileInfo = fileProvider.GetFileInfo("cookies.json");
         logger.LogInformation("目标json地址：{path}", fileInfo.PhysicalPath);
 
         if (!fileInfo.Exists)
         {
-            await using var stream = File.Create(fileInfo.PhysicalPath);
+            await using var stream = File.Create(fileInfo.PhysicalPath!);
             await using var sw = new StreamWriter(stream);
             await sw.WriteAsync($"{{{Environment.NewLine}}}");
         }
 
         string json;
-        await using (var stream = new FileStream(fileInfo.PhysicalPath, FileMode.Open))
+        await using (var stream = new FileStream(fileInfo.PhysicalPath!, FileMode.Open))
         {
             using var reader = new StreamReader(stream);
             json = await reader.ReadToEndAsync();
@@ -184,7 +200,7 @@ public class LoginDomainService(
             return;
         }
 
-        ckInfo.CookieItemDictionary.TryGetValue("DedeUserID", out string userId);
+        ckInfo.CookieItemDictionary.TryGetValue("DedeUserID", out var userId);
         userId ??= ckInfo.CookieStr;
         var indexOfCkConfigEnd = lines.FindIndex(
             indexOfCkConfigKey,
@@ -219,14 +235,12 @@ public class LoginDomainService(
         try
         {
             var token = await GetQingLongAuthTokenAsync();
-            if (token.IsNullOrEmpty())
+            if (string.IsNullOrEmpty(token))
             {
                 throw new Exception("获取青龙token失败");
             }
 
-            token = $"Bearer {token}";
-
-            var qlEnvList = await qingLongApi.GetEnvs("Ray_BiliBiliCookies__", token);
+            var qlEnvList = await qingLongApi.GetEnvsAsync("Ray_BiliBiliCookies__", token);
             if (qlEnvList.Code != 200)
             {
                 throw new Exception($"查询环境变量失败：{qlEnvList.ToJsonStr()}");
@@ -238,7 +252,7 @@ public class LoginDomainService(
             var list = qlEnvList
                 .Data.Where(x => x.name.StartsWith("Ray_BiliBiliCookies__"))
                 .ToList();
-            QingLongEnv oldEnv = list.FirstOrDefault(x => x.value.Contains(ckInfo.UserId));
+            var oldEnv = list.FirstOrDefault(x => x.value.Contains(ckInfo.UserId));
 
             if (oldEnv != null)
             {
@@ -249,12 +263,12 @@ public class LoginDomainService(
                     id = oldEnv.id,
                     name = oldEnv.name,
                     value = ckInfo.CookieStr,
-                    remarks = oldEnv.remarks.IsNullOrEmpty()
+                    remarks = string.IsNullOrEmpty(oldEnv.remarks)
                         ? $"bili-{ckInfo.UserId}"
                         : oldEnv.remarks,
                 };
 
-                var updateRe = await qingLongApi.UpdateEnvs(update, token);
+                var updateRe = await qingLongApi.UpdateEnvsAsync(update, token);
                 logger.LogInformation(updateRe.Code == 200 ? "更新成功！" : updateRe.ToJsonStr());
 
                 return true;
@@ -282,7 +296,7 @@ public class LoginDomainService(
                 value = ckInfo.CookieStr,
                 remarks = $"bili-{ckInfo.UserId}",
             };
-            var addRe = await qingLongApi.AddEnvs([add], token);
+            var addRe = await qingLongApi.AddEnvsAsync([add], token);
             logger.LogInformation(addRe.Code == 200 ? "新增成功！" : addRe.ToJsonStr());
             return true;
         }
@@ -377,26 +391,14 @@ public class LoginDomainService(
     private string GetOnlinePic(string str)
     {
         var encode = System.Web.HttpUtility.UrlEncode(str);
-        ;
         return $"https://tool.lu/qrcode/basic.html?text={encode}";
-    }
-
-    private string GetCookieStr(IEnumerable<string> setCookies)
-    {
-        var ckItemList = new List<string>();
-        foreach (var item in setCookies)
-        {
-            ckItemList.Add(item.Split(';').FirstOrDefault());
-        }
-        var biliCk = string.Join("; ", ckItemList);
-        return biliCk;
     }
 
     private async Task SaveJson(List<string> lines, IFileInfo fileInfo)
     {
         var newJson = string.Join(Environment.NewLine, lines);
 
-        await using var sw = new StreamWriter(fileInfo.PhysicalPath);
+        await using var sw = new StreamWriter(fileInfo.PhysicalPath!);
         await sw.WriteAsync(newJson);
     }
 
@@ -404,29 +406,26 @@ public class LoginDomainService(
 
     private async Task<string> GetQingLongAuthTokenAsync()
     {
-        var token = "";
-
-        var qlDir = configuration["QL_DIR"] ?? "/ql";
-
-        string authFile = qlDir;
-        if (hostingEnvironment.ContentRootPath.Contains($"{qlDir}/data/"))
+        logger.LogWarning("使用OpenAPI鉴权");
+        if (
+            string.IsNullOrWhiteSpace(qingLongOptions.Value.ClientId)
+            || string.IsNullOrWhiteSpace(qingLongOptions.Value.ClientSecret)
+        )
         {
-            authFile = Path.Combine(authFile, "data");
-        }
-        authFile = Path.Combine(authFile, "config/auth.json");
-
-        if (!File.Exists(authFile))
-        {
-            logger.LogWarning("获取青龙授权失败，文件不存在：{authFile}", authFile);
-            return token;
+            logger.LogWarning("未配置青龙的ClientId和ClientSecret，无法自动获取token");
+            logger.LogWarning(
+                "教程：{qingDoc}",
+                "https://github.com/RayWangQvQ/BiliBiliToolPro/blob/main/qinglong/README.md"
+            );
+            return "";
         }
 
-        var authJson = await File.ReadAllTextAsync(authFile);
+        var token = await qingLongApi.GetTokenAsync(
+            qingLongOptions.Value.ClientId!,
+            qingLongOptions.Value.ClientSecret!
+        );
 
-        var jb = JsonConvert.DeserializeObject<JObject>(authJson);
-        token = jb["token"]?.ToString();
-
-        return token;
+        return $"{token.Data.token_type} {token.Data.token}";
     }
 
     private Task PrintIfSaveCookieFailAsync(BiliCookie ckInfo, CancellationToken cancellationToken)

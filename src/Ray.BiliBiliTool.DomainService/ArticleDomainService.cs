@@ -1,14 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Ray.BiliBiliTool.Agent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos.Article;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
-using Ray.BiliBiliTool.Agent.BiliBiliAgent.Services;
 using Ray.BiliBiliTool.Config.Options;
 using Ray.BiliBiliTool.DomainService.Interfaces;
 
@@ -16,12 +11,10 @@ namespace Ray.BiliBiliTool.DomainService;
 
 public class ArticleDomainService(
     IArticleApi articleApi,
-    BiliCookie biliCookie,
     ILogger<ArticleDomainService> logger,
     IOptionsMonitor<DailyTaskOptions> dailyTaskOptions,
     ICoinDomainService coinDomainService,
-    IAccountApi accountApi,
-    IWbiService wbiService
+    IAccountApi accountApi
 ) : IArticleDomainService
 {
     private readonly DailyTaskOptions _dailyTaskOptions = dailyTaskOptions.CurrentValue;
@@ -36,18 +29,18 @@ public class ArticleDomainService(
     /// </summary>
     private readonly Dictionary<string, int> _alreadyDonatedCoinCountCatch = new();
 
-    public async Task LikeArticle(long cvid)
+    public async Task LikeArticle(long cvid, BiliCookie ck)
     {
-        await articleApi.LikeAsync(cvid, biliCookie.BiliJct);
+        await articleApi.LikeAsync(cvid, ck.BiliJct, ck.ToString());
     }
 
     /// <summary>
     /// 投币专栏任务
     /// </summary>
     /// <returns></returns>
-    public async Task<bool> AddCoinForArticles()
+    public async Task<bool> AddCoinForArticles(BiliCookie ck)
     {
-        var donateCoinsCounts = await CalculateDonateCoinsCounts();
+        var donateCoinsCounts = await CalculateDonateCoinsCounts(ck);
 
         if (donateCoinsCounts == 0)
         {
@@ -62,26 +55,26 @@ public class ArticleDomainService(
         {
             logger.LogDebug("开始尝试第{num}次", i);
 
-            var upId = GetUpFromConfigUps();
+            var upId = GetUpFromConfigUps(ck);
             if (upId == 0)
             {
                 logger.LogDebug("未能成功选择支持的Up主");
                 continue;
             }
             // 当upId不符合时，会直接报错，需要将两者的判断分隔开
-            var cvid = await GetRandomArticleFromUp(upId);
+            var cvid = await GetRandomArticleFromUp(upId, ck);
             if (cvid == 0)
             {
                 logger.LogDebug("第{num}次尝试，未能成功选择合适的专栏", i);
                 continue;
             }
 
-            if (await AddCoinForArticle(cvid, upId))
+            if (await AddCoinForArticle(cvid, upId, ck))
             {
                 // 点赞
                 if (_dailyTaskOptions.SelectLike)
                 {
-                    await LikeArticle(cvid);
+                    await LikeArticle(cvid, ck);
                     logger.LogInformation("专栏点赞成功");
                 }
 
@@ -99,7 +92,7 @@ public class ArticleDomainService(
 
         logger.LogInformation(
             "【硬币余额】{coin}",
-            (await accountApi.GetCoinBalanceAsync()).Data.Money ?? 0
+            (await accountApi.GetCoinBalanceAsync(ck.ToString())).Data!.Money ?? 0
         );
 
         return true;
@@ -111,7 +104,7 @@ public class ArticleDomainService(
     /// <param name="cvid">文章cvid</param>
     /// <param name="mid">文章作者mid</param>
     /// <returns>投币是否成功（false 投币失败，true 投币成功）</returns>
-    public async Task<bool> AddCoinForArticle(long cvid, long mid)
+    public async Task<bool> AddCoinForArticle(long cvid, long mid, BiliCookie ck)
     {
         BiliApiResponse result;
         try
@@ -119,7 +112,8 @@ public class ArticleDomainService(
             var refer =
                 $"https://www.bilibili.com/read/cv{cvid}/?from=search&spm_id_from=333.337.0.0";
             result = await articleApi.AddCoinForArticleAsync(
-                new AddCoinForArticleRequest(cvid, mid, biliCookie.BiliJct),
+                new AddCoinForArticleRequest(cvid, mid, ck.BiliJct),
+                ck.ToString(),
                 refer
             );
         }
@@ -147,11 +141,11 @@ public class ArticleDomainService(
     /// </summary>
     /// <param name="mid"></param>
     /// <returns>专栏的cvid</returns>
-    private async Task<long> GetRandomArticleFromUp(long mid)
+    private async Task<long> GetRandomArticleFromUp(long mid, BiliCookie ck)
     {
         if (!_upArticleCountDicCatch.TryGetValue(mid, out int articleCount))
         {
-            articleCount = await GetArticleCountOfUp(mid);
+            articleCount = await GetArticleCountOfUp(mid, ck);
             _upArticleCountDicCatch.Add(mid, articleCount);
         }
 
@@ -167,7 +161,6 @@ public class ArticleDomainService(
             ps = 1,
             pn = new Random().Next(1, articleCount + 1),
         };
-        await wbiService.SetWridAsync(req);
 
         BiliApiResponse<SearchUpArticlesResponse> re = await articleApi.SearchUpArticlesByUpIdAsync(
             req
@@ -178,12 +171,12 @@ public class ArticleDomainService(
             throw new Exception(re.Message);
         }
 
-        ArticleInfo articleInfo = re.Data.Articles.FirstOrDefault();
+        var articleInfo = re.Data.Articles.FirstOrDefault();
 
-        logger.LogInformation("获取到的专栏{cvid}({title})", articleInfo.Id, articleInfo.Title);
+        logger.LogInformation("获取到的专栏{cvid}({title})", articleInfo?.Id, articleInfo?.Title);
 
         // 检查是否可投
-        if (!await IsCanDonate(articleInfo.Id))
+        if (articleInfo == null || !await IsCanDonate(articleInfo.Id))
         {
             return 0;
         }
@@ -196,7 +189,7 @@ public class ArticleDomainService(
     /// 从支持UP主列表中随机挑选一位
     /// </summary>
     /// <returns>被挑选up主的mid</returns>
-    private long GetUpFromConfigUps()
+    private long GetUpFromConfigUps(BiliCookie ck)
     {
         if (
             _dailyTaskOptions.SupportUpIdList == null
@@ -215,7 +208,7 @@ public class ArticleDomainService(
             if (randomUpId is 0 or long.MinValue)
                 return 0;
 
-            if (randomUpId.ToString() == biliCookie.UserId)
+            if (randomUpId.ToString() == ck.UserId)
             {
                 logger.LogDebug("不能为自己投币");
                 return 0;
@@ -238,11 +231,9 @@ public class ArticleDomainService(
     /// <param name="mid">up主mid</param>
     /// <returns>专栏总数</returns>
     /// <exception cref="Exception"></exception>
-    private async Task<int> GetArticleCountOfUp(long mid)
+    private async Task<int> GetArticleCountOfUp(long mid, BiliCookie ck)
     {
         var req = new SearchArticlesByUpIdDto() { mid = mid };
-
-        await wbiService.SetWridAsync(req);
 
         BiliApiResponse<SearchUpArticlesResponse> re = await articleApi.SearchUpArticlesByUpIdAsync(
             req
@@ -260,16 +251,16 @@ public class ArticleDomainService(
     /// 计算所需要投的硬币数量
     /// </summary>
     /// <returns>硬币数量</returns>
-    private async Task<int> CalculateDonateCoinsCounts()
+    private async Task<int> CalculateDonateCoinsCounts(BiliCookie ck)
     {
-        int needCoins = await GetNeedDonateCoinCounts();
+        int needCoins = await GetNeedDonateCoinCounts(ck);
 
         int protectedCoins = _dailyTaskOptions.NumberOfProtectedCoins;
         if (needCoins <= 0)
             return 0;
 
         //投币前硬币余额
-        decimal coinBalance = await coinDomainService.GetCoinBalance();
+        decimal coinBalance = await coinDomainService.GetCoinBalance(ck);
         logger.LogInformation("【投币前余额】 : {coinBalance}", coinBalance);
         _ = int.TryParse(
             decimal.Truncate(coinBalance - protectedCoins).ToString(),
@@ -314,7 +305,7 @@ public class ArticleDomainService(
         return needCoins;
     }
 
-    private async Task<int> GetNeedDonateCoinCounts()
+    private async Task<int> GetNeedDonateCoinCounts(BiliCookie ck)
     {
         int configCoins = _dailyTaskOptions.NumberOfCoins;
 
@@ -325,7 +316,7 @@ public class ArticleDomainService(
         }
 
         //已投的硬币
-        int alreadyCoins = await coinDomainService.GetDonatedCoins();
+        int alreadyCoins = await coinDomainService.GetDonatedCoins(ck);
 
         int targetCoins = configCoins;
 

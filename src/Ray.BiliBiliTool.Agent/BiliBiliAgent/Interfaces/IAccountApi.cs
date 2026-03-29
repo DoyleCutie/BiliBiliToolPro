@@ -1,5 +1,4 @@
-﻿using System.Threading.Tasks;
-using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
+﻿using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
 using WebApiClientCore.Attributes;
 
 namespace Ray.BiliBiliTool.Agent.BiliBiliAgent.Interfaces;
@@ -13,5 +12,5 @@ public interface IAccountApi : IBiliBiliApi
     /// <returns></returns>
     [Header("Referer", "https://account.bilibili.com/account/coin")]
     [HttpGet("/site/getCoin")]
-    Task<BiliApiResponse<CoinBalance>> GetCoinBalanceAsync();
+    Task<BiliApiResponse<CoinBalance>> GetCoinBalanceAsync([Header("Cookie")] string ck);
 }

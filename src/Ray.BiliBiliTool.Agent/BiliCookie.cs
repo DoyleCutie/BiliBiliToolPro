@@ -1,29 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using System.ComponentModel;
 using Ray.BiliBiliTool.Infrastructure.Cookie;
+using Ray.BiliBiliTool.Infrastructure.Extensions;
 
 namespace Ray.BiliBiliTool.Agent;
 
-public class BiliCookie : CookieInfo
+public class BiliCookie(Dictionary<string, string> cookieDic) : CookieInfo(cookieDic)
 {
-    private readonly ILogger<BiliCookie> _logger;
-
-    public BiliCookie(string ckStr)
-        : this(new List<string> { ckStr }) { }
-
-    public BiliCookie(List<string> ckStrList)
-        : this(NullLogger<BiliCookie>.Instance, new CookieStrFactory(ckStrList)) { }
-
-    public BiliCookie(ILogger<BiliCookie> logger, CookieStrFactory cookieStrFactory)
-        : base(cookieStrFactory)
-    {
-        _logger = logger;
-    }
-
-    public override string CkValueBuild(string value)
+    protected override string CkValueBuild(string value)
     {
         value = base.CkValueBuild(value);
 
@@ -35,9 +18,11 @@ public class BiliCookie : CookieInfo
         return value;
     }
 
+    #region 扩充属性
+
     [Description("DedeUserID")]
     public string UserId =>
-        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(UserId)), out string userId)
+        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(UserId)), out string? userId)
             ? userId
             : "";
 
@@ -46,13 +31,13 @@ public class BiliCookie : CookieInfo
     /// </summary>
     [Description("SESSDATA")]
     public string SessData =>
-        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(SessData)), out string sess)
+        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(SessData)), out string? sess)
             ? sess
             : "";
 
     [Description("bili_jct")]
     public string BiliJct =>
-        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(BiliJct)), out string jct)
+        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(BiliJct)), out string? jct)
             ? jct
             : "";
 
@@ -60,16 +45,19 @@ public class BiliCookie : CookieInfo
     public string LiveBuvid =>
         CookieItemDictionary.TryGetValue(
             GetPropertyDescription(nameof(LiveBuvid)),
-            out string liveBuvid
+            out string? liveBuvid
         )
             ? liveBuvid
             : "";
 
     [Description("buvid3")]
     public string Buvid =>
-        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(Buvid)), out string buvid)
+        CookieItemDictionary.TryGetValue(GetPropertyDescription(nameof(Buvid)), out string? buvid)
             ? buvid
             : "";
+
+    #endregion
+
 
     /// <summary>
     /// 检查是否已配置
@@ -88,31 +76,29 @@ public class BiliCookie : CookieInfo
         //UserId为空，抛异常
         if (string.IsNullOrWhiteSpace(UserId))
         {
-            _logger.LogWarning(msg, GetPropertyDescription(nameof(UserId)));
-
-            result = false;
+            throw new Exception(string.Format(msg, GetPropertyDescription(nameof(UserId))));
         }
         else if (!long.TryParse(UserId, out long uid)) //不为空，但不能转换为long，警告
         {
-            _logger.LogWarning(
-                "[{uidKey}]={uid} 不能转换为long型，请确认配置的是正确的Cookie值",
-                GetPropertyDescription(nameof(UserId)),
-                UserId
+            throw new Exception(
+                string.Format(
+                    "[{uidKey}]={uid} 不能转换为long型，请确认配置的是正确的Cookie值",
+                    GetPropertyDescription(nameof(UserId)),
+                    UserId
+                )
             );
         }
 
         //SessData为空，抛异常
         if (string.IsNullOrWhiteSpace(SessData))
         {
-            _logger.LogWarning(msg, GetPropertyDescription(nameof(SessData)));
-            result = false;
+            throw new Exception(string.Format(msg, GetPropertyDescription(nameof(SessData))));
         }
 
         //BiliJct为空，抛异常
         if (string.IsNullOrWhiteSpace(BiliJct))
         {
-            _logger.LogWarning(msg, GetPropertyDescription(nameof(BiliJct)));
-            result = false;
+            throw new Exception(string.Format(msg, GetPropertyDescription(nameof(BiliJct))));
         }
 
         if (!result)

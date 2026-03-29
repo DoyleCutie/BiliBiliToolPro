@@ -1,19 +1,30 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿namespace Ray.BiliBiliTool.Config.Options;
 
-namespace Ray.BiliBiliTool.Config.Options;
-
-public class UnfollowBatchedTaskOptions
+public class UnfollowBatchedTaskOptions : BaseConfigOptions
 {
-    public string GroupName { get; set; }
+    public override string SectionName => "UnfollowBatchedTaskConfig";
+    private const string DefaultGroupName = "天选时刻";
 
-    public int Count { get; set; } = 0;
+    public string GroupName { get; set; } = DefaultGroupName;
 
-    public string RetainUids { get; set; }
+    public int Count { get; set; }
+
+    public string? RetainUids { get; set; }
 
     public List<string> RetainUidList =>
         RetainUids
             ?.Split(",", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .ToList() ?? new List<string>();
+
+    public override Dictionary<string, string> ToConfigDictionary()
+    {
+        return MergeConfigDictionary(
+            new Dictionary<string, string>
+            {
+                { $"{SectionName}:{nameof(GroupName)}", GroupName },
+                { $"{SectionName}:{nameof(Count)}", Count.ToString() },
+                { $"{SectionName}:{nameof(RetainUids)}", RetainUids ?? "" },
+            }
+        );
+    }
 }

@@ -1,5 +1,4 @@
-﻿using System;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Ray.BiliBiliTool.Infrastructure;
 using Rougamo;
@@ -11,12 +10,12 @@ namespace Ray.BiliBiliTool.Application.Attributes;
 /// 任务拦截器
 /// </summary>
 public class TaskInterceptorAttribute(
-    string taskName = null,
+    string? taskName = null,
     TaskLevel taskLevel = TaskLevel.Two,
     bool rethrowWhenException = true
 ) : MoAttribute
 {
-    private readonly ILogger _logger = Global.ServiceProviderRoot.GetRequiredService<
+    private readonly ILogger _logger = Global.ServiceProviderRoot!.GetRequiredService<
         ILogger<TaskInterceptorAttribute>
     >();
 
@@ -69,16 +68,12 @@ public class TaskInterceptorAttribute(
 
     private char GetDelimiter()
     {
-        switch (taskLevel)
+        return taskLevel switch
         {
-            case TaskLevel.One:
-                return '=';
-            case TaskLevel.Two:
-                return '-';
-            case TaskLevel.Three:
-                return '-';
-            default:
-                throw new ArgumentOutOfRangeException(nameof(taskLevel), taskLevel, null);
-        }
+            TaskLevel.One => '=',
+            TaskLevel.Two => '-',
+            TaskLevel.Three => '-',
+            _ => throw new ArgumentOutOfRangeException(nameof(taskLevel), taskLevel, null),
+        };
     }
 }

@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Ray.BiliBiliTool.Config.Options;
@@ -25,28 +24,23 @@ public static class ServiceCollectionExtension
             .Configure<JsonSerializerOptions>(o => o = JsonSerializerOptionsBuilder.DefaultOptions)
             .Configure<BiliBiliCookieOptions>(configuration.GetSection("BiliBiliCookie"))
             .Configure<DailyTaskOptions>(configuration.GetSection("DailyTaskConfig"))
+            .Configure<MangaTaskOptions>(configuration.GetSection("MangaTaskConfig"))
+            .Configure<MangaPrivilegeTaskOptions>(
+                configuration.GetSection("MangaPrivilegeTaskConfig")
+            )
+            .Configure<Silver2CoinTaskOptions>(configuration.GetSection("Silver2CoinTaskConfig"))
+            .Configure<ChargeTaskOptions>(configuration.GetSection("ChargeTaskConfig"))
             .Configure<LiveLotteryTaskOptions>(configuration.GetSection("LiveLotteryTaskConfig"))
             .Configure<UnfollowBatchedTaskOptions>(
                 configuration.GetSection("UnfollowBatchedTaskConfig")
             )
             .Configure<VipBigPointOptions>(configuration.GetSection("VipBigPointConfig"))
             .Configure<SecurityOptions>(configuration.GetSection("Security"))
-            .Configure<ReceiveVipPrivilegeOptions>(
-                configuration.GetSection("ReceiveVipPrivilegeConfig")
-            )
+            .Configure<VipPrivilegeOptions>(configuration.GetSection("VipPrivilegeConfig"))
             .Configure<LiveFansMedalTaskOptions>(
-                configuration.GetSection("LiveFansMedalTaskOptions")
+                configuration.GetSection("LiveFansMedalTaskConfig")
             )
-            .Configure<Dictionary<string, int>>(
-                Constants.OptionsNames.ExpDictionaryName,
-                configuration.GetSection(Constants.OptionsNames.ExpDictionaryName)
-            )
-            .Configure<Dictionary<string, string>>(
-                Constants.OptionsNames.DonateCoinCanContinueStatusDictionaryName,
-                configuration.GetSection(
-                    Constants.OptionsNames.DonateCoinCanContinueStatusDictionaryName
-                )
-            );
+            .Configure<QingLongOptions>(configuration.GetSection("QingLongConfig"));
 
         return services;
     }

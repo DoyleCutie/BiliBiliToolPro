@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Ray.BiliBiliTool.Agent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
@@ -19,7 +15,6 @@ namespace Ray.BiliBiliTool.DomainService;
 public class AccountDomainService(
     ILogger<AccountDomainService> logger,
     IDailyTaskApi dailyTaskApi,
-    BiliCookie cookie,
     IUserInfoApi userInfoApi,
     IRelationApi relationApi,
     IOptionsMonitor<UnfollowBatchedTaskOptions> unfollowBatchedTaskOptions,
@@ -34,14 +29,14 @@ public class AccountDomainService(
     /// 登录
     /// </summary>
     /// <returns></returns>
-    public async Task<UserInfo> LoginByCookie()
+    public async Task<UserInfo> LoginByCookie(BiliCookie cookie)
     {
-        BiliApiResponse<UserInfo> apiResponse = await userInfoApi.LoginByCookie();
+        BiliApiResponse<UserInfo> apiResponse = await userInfoApi.LoginByCookie(cookie.ToString());
 
-        if (apiResponse.Code != 0 || !apiResponse.Data.IsLogin)
+        if (apiResponse.Code != 0 || !apiResponse.Data!.IsLogin)
         {
-            logger.LogWarning("登录异常，请检查Cookie是否错误或过期");
-            return null;
+            throw new Exception("登录失败，请检查Cookie");
+            ;
         }
 
         UserInfo useInfo = apiResponse.Data;
@@ -51,7 +46,7 @@ public class AccountDomainService(
         logger.LogInformation("【会员状态】{0}", useInfo.VipStatus.Description());
         logger.LogInformation("【硬币余额】{0}", useInfo.Money ?? 0);
 
-        if (useInfo.Level_info.Current_level < 6)
+        if (useInfo.Level_info?.Current_level < 6)
         {
             logger.LogInformation(
                 "【距升级Lv{0}】预计{1}天",
@@ -61,7 +56,7 @@ public class AccountDomainService(
         }
         else
         {
-            logger.LogInformation("【当前经验】{0}", useInfo.Level_info.Current_exp);
+            logger.LogInformation("【当前经验】{0}", useInfo.Level_info?.Current_exp);
             logger.LogInformation("您已是 Lv6 的大佬了，无敌是多么寂寞~");
         }
 
@@ -72,11 +67,12 @@ public class AccountDomainService(
     /// 获取每日任务完成情况
     /// </summary>
     /// <returns></returns>
-    public async Task<DailyTaskInfo> GetDailyTaskStatus()
+    public async Task<DailyTaskInfo> GetDailyTaskStatus(BiliCookie ck)
     {
         DailyTaskInfo result = new();
-        BiliApiResponse<DailyTaskInfo> apiResponse =
-            await dailyTaskApi.GetDailyTaskRewardInfoAsync();
+        BiliApiResponse<DailyTaskInfo> apiResponse = await dailyTaskApi.GetDailyTaskRewardInfoAsync(
+            ck.ToString()
+        );
         if (apiResponse.Code == 0)
         {
             logger.LogDebug("请求本日任务完成状态成功");
@@ -85,11 +81,11 @@ public class AccountDomainService(
         else
         {
             logger.LogWarning("获取今日任务完成状态失败：{result}", apiResponse.ToJsonStr());
-            result = (await dailyTaskApi.GetDailyTaskRewardInfoAsync()).Data;
+            result = (await dailyTaskApi.GetDailyTaskRewardInfoAsync(ck.ToString())).Data;
             //todo:偶发性请求失败，再请求一次，这么写很丑陋，待用polly再框架层面实现
         }
 
-        return result;
+        return result!;
     }
 
     /// <summary>
@@ -97,12 +93,12 @@ public class AccountDomainService(
     /// </summary>
     /// <param name="groupName"></param>
     /// <param name="count"></param>
-    public async Task UnfollowBatched()
+    public async Task UnfollowBatched(BiliCookie ck)
     {
         logger.LogInformation("【分组名】{group}", _unfollowBatchedTaskOptions.GroupName);
 
         //根据分组名称获取tag
-        TagDto tag = await GetTag(_unfollowBatchedTaskOptions.GroupName);
+        TagDto? tag = await GetTag(_unfollowBatchedTaskOptions.GroupName, ck);
         var tagId = tag?.Tagid;
         int total = tag?.Count ?? 0;
 
@@ -128,11 +124,11 @@ public class AccountDomainService(
         int totalPage = (int)Math.Ceiling(total / (double)20);
 
         //从最后一页开始获取
-        var req = new GetSpecialFollowingsRequest(long.Parse(cookie.UserId), tagId.Value)
+        var req = new GetSpecialFollowingsRequest(long.Parse(ck.UserId), tagId.Value)
         {
             Pn = totalPage,
         };
-        List<UpInfo> followings = (await relationApi.GetFollowingsByTag(req)).Data;
+        List<UpInfo> followings = (await relationApi.GetFollowingsByTag(req, ck.ToString())).Data;
         followings.Reverse();
 
         var targetList = new List<UpInfo>();
@@ -153,7 +149,7 @@ public class AccountDomainService(
                 if (pn <= 0)
                     break;
                 req.Pn = pn;
-                followings = (await relationApi.GetFollowingsByTag(req)).Data;
+                followings = (await relationApi.GetFollowingsByTag(req, ck.ToString())).Data;
                 followings.Reverse();
             }
         }
@@ -175,11 +171,11 @@ public class AccountDomainService(
 
             string modifyReferer = string.Format(
                 RelationApiConstant.ModifyReferer,
-                cookie.UserId,
+                ck.UserId,
                 tagId
             );
-            var modifyReq = new ModifyRelationRequest(info.Mid, cookie.BiliJct);
-            var re = await relationApi.ModifyRelation(modifyReq, modifyReferer);
+            var modifyReq = new ModifyRelationRequest(info.Mid, ck.BiliJct);
+            var re = await relationApi.ModifyRelation(modifyReq, ck.ToString(), modifyReferer);
 
             if (re.Code == 0)
             {
@@ -196,20 +192,21 @@ public class AccountDomainService(
         logger.LogInformation("【本次共取关】{count}人", success);
 
         //计算剩余
-        tag = await GetTag(_unfollowBatchedTaskOptions.GroupName);
-        logger.LogInformation("【分组下剩余】{count}人", tag?.Count ?? 0);
+        tag = await GetTag(_unfollowBatchedTaskOptions.GroupName, ck);
+        logger.LogInformation("【分组下剩余】{count}人", tag?.Count);
     }
 
     /// <summary>
     /// 获取分组（标签）
     /// </summary>
     /// <param name="groupName"></param>
+    /// <param name="ck"></param>
     /// <returns></returns>
-    private async Task<TagDto> GetTag(string groupName)
+    private async Task<TagDto?> GetTag(string groupName, BiliCookie ck)
     {
-        string getTagsReferer = string.Format(RelationApiConstant.GetTagsReferer, cookie.UserId);
-        List<TagDto> tagList = (await relationApi.GetTags(getTagsReferer)).Data;
-        TagDto tag = tagList.FirstOrDefault(x => x.Name == groupName);
+        string getTagsReferer = string.Format(RelationApiConstant.GetTagsReferer, ck.UserId);
+        List<TagDto> tagList = (await relationApi.GetTags(ck.ToString(), getTagsReferer)).Data!;
+        var tag = tagList.FirstOrDefault(x => x.Name == groupName);
         return tag;
     }
 
@@ -222,7 +219,10 @@ public class AccountDomainService(
     {
         double availableCoins =
             decimal.ToDouble(useInfo.Money ?? 0) - _dailyTaskOptions.NumberOfProtectedCoins;
-        long needExp = useInfo.Level_info.GetNext_expLong() - useInfo.Level_info.Current_exp;
+        long needExp =
+            useInfo.Level_info != null
+                ? useInfo.Level_info.GetNext_expLong() - useInfo.Level_info.Current_exp
+                : 0;
         int needDay;
 
         if (availableCoins < 0)

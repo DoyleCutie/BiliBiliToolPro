@@ -27,12 +27,12 @@ public class AccountApiTests
     public async Task GetCoinBalance_Normal_GetCoinBalance()
     {
         // Act
-        BiliApiResponse<CoinBalance> re = await _api.GetCoinBalanceAsync();
+        BiliApiResponse<CoinBalance> re = await _api.GetCoinBalanceAsync(null);
 
         // Arrange
 
         // Assert
         re.Code.Should().Be(0);
-        re.Data.Money.Should().IsNotNull();
+        re.Data.Money.Should().NotBeNull();
     }
 }

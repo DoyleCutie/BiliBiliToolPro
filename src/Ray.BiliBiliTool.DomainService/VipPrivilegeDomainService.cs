@@ -1,5 +1,4 @@
-﻿using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Ray.BiliBiliTool.Agent;
 using Ray.BiliBiliTool.Agent.BiliBiliAgent.Dtos;
@@ -15,22 +14,20 @@ namespace Ray.BiliBiliTool.DomainService;
 public class VipPrivilegeDomainService(
     ILogger<VipPrivilegeDomainService> logger,
     IDailyTaskApi dailyTaskApi,
-    BiliCookie biliBiliCookieOptions,
-    IOptionsMonitor<DailyTaskOptions> dailyTaskOptions,
-    IOptionsMonitor<ReceiveVipPrivilegeOptions> receiveVipPrivilegeOptionsce
+    IOptionsMonitor<VipPrivilegeOptions> receiveVipPrivilegeOptions
 ) : IVipPrivilegeDomainService
 {
-    private readonly DailyTaskOptions _dailyTaskOptions = dailyTaskOptions.CurrentValue;
-    private readonly ReceiveVipPrivilegeOptions _receiveVipPrivilegeOptionsce =
-        receiveVipPrivilegeOptionsce.CurrentValue;
+    private readonly VipPrivilegeOptions _vipPrivilegeOptions =
+        receiveVipPrivilegeOptions.CurrentValue;
 
     /// <summary>
     /// 每月领取大会员福利（B币券、大会员权益）
     /// </summary>
-    /// <param name="useInfo"></param>
-    public async Task<bool> ReceiveVipPrivilege(UserInfo userInfo)
+    /// <param name="userInfo"></param>
+    /// <param name="ck"></param>
+    public async Task<bool> ReceiveVipPrivilege(UserInfo userInfo, BiliCookie ck)
     {
-        if (!_receiveVipPrivilegeOptionsce.IsEnable)
+        if (!_vipPrivilegeOptions.IsEnable)
         {
             logger.LogInformation("已配置为关闭，跳过");
             return false;
@@ -60,8 +57,8 @@ public class VipPrivilegeDomainService(
         }
         */
 
-        var suc1 = await ReceiveVipPrivilege(VipPrivilegeType.BCoinCoupon);
-        var suc2 = await ReceiveVipPrivilege(VipPrivilegeType.MembershipBenefits);
+        var suc1 = await ReceiveVipPrivilege(VipPrivilegeType.BCoinCoupon, ck);
+        var suc2 = await ReceiveVipPrivilege(VipPrivilegeType.MembershipBenefits, ck);
 
         if (suc1 | suc2)
             return true;
@@ -74,11 +71,13 @@ public class VipPrivilegeDomainService(
     /// 领取大会员每月赠送福利
     /// </summary>
     /// <param name="type">1.大会员B币券；2.大会员福利</param>
-    private async Task<bool> ReceiveVipPrivilege(VipPrivilegeType type)
+    /// <param name="ck"></param>
+    private async Task<bool> ReceiveVipPrivilege(VipPrivilegeType type, BiliCookie ck)
     {
         var response = await dailyTaskApi.ReceiveVipPrivilegeAsync(
             (int)type,
-            biliBiliCookieOptions.BiliJct
+            ck.BiliJct,
+            ck.ToString()
         );
 
         var name = GetPrivilegeName(type);

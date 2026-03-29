@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
+﻿using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +11,11 @@ public static class TaskTypeFactory
         typeof(ILoginTaskAppService),
         typeof(ITestAppService),
         typeof(IDailyTaskAppService),
+        typeof(IMangaTaskAppService),
+        typeof(IMangaPrivilegeTaskAppService),
+        typeof(IVipPrivilegeTaskAppService),
+        typeof(ISilver2CoinTaskAppService),
+        typeof(IChargeTaskAppService),
         typeof(ILiveFansMedalAppService),
         typeof(ILiveLotteryTaskAppService),
         typeof(IVipBigPointAppService),
@@ -29,7 +31,8 @@ public static class TaskTypeFactory
             All.Add(
                 new TaskTypeItem(
                     i + 1,
-                    TypeList[i].GetCustomAttribute<DescriptionAttribute>()?.Description,
+                    TypeList[i].GetCustomAttribute<DescriptionAttribute>()?.Description
+                        ?? "Unknown",
                     TypeList[i]
                 )
             );
